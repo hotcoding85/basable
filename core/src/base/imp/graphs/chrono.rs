@@ -1,12 +1,21 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
+use axum::http::StatusCode;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-use crate::{base::query::{
-    filter::{Filter, FilterChain, FilterCondition, FilterOperator},
-    BasableQuery, QueryOperation, QueryOrder,
-}, globals::{BASABLE_CHRONO_XCOL, BASABLE_CHRONO_YCOL}};
+use crate::{
+    base::{
+        query::{
+            filter::{Filter, FilterChain, FilterCondition, FilterOperator},
+            BasableQuery, QueryOperation, QueryOrder,
+        },
+        AppError,
+    },
+    globals::{BASABLE_CHRONO_XCOL, BASABLE_CHRONO_YCOL},
+};
+
+use super::FromQueryParams;
 
 #[derive(Clone, EnumIter)]
 pub(crate) enum ChronoAnalysisBasis {
@@ -84,6 +93,48 @@ pub(crate) struct ChronoAnalysisOpts {
     pub range: ChronoAnalysisRange,
 }
 
+impl FromQueryParams for ChronoAnalysisOpts {
+    fn from_query_params(params: HashMap<String, String>) -> Result<Self, AppError>
+    where
+        Self: Sized,
+    {
+        let table = params.get("table");
+        let column = params.get("column");
+        let basis = params.get("basis");
+        let range = params.get("range");
+    
+        match (table, column, basis, range) {
+            (Some(table), Some(column), Some(basis), Some(range)) => {
+                let basis = basis.to_owned().try_into();
+                let basis = basis
+                    .map_err(|err: String| AppError::new(StatusCode::EXPECTATION_FAILED, err.as_str()));
+    
+                let range = range.to_owned().try_into();
+                let range = range
+                    .map_err(|err: String| AppError::new(StatusCode::EXPECTATION_FAILED, err.as_str()));
+    
+                let opts = ChronoAnalysisOpts {
+                    table: table.to_owned(),
+                    chrono_col: column.to_owned(),
+                    basis: basis?,
+                    range: range?,
+                };
+
+                Ok(opts)
+    
+                // let results = db.chrono_graph(opts)?;
+    
+                // Ok(Json(results))
+            }
+            _ => Err(AppError::new(
+                StatusCode::EXPECTATION_FAILED,
+                "Missing query parameters",
+            )),
+        }
+    
+    }
+}
+
 impl From<ChronoAnalysisOpts> for BasableQuery {
     fn from(value: ChronoAnalysisOpts) -> Self {
         let ChronoAnalysisOpts {
@@ -93,14 +144,13 @@ impl From<ChronoAnalysisOpts> for BasableQuery {
             range,
         } = value;
 
-
         // create query operation type
-        let selection_columns = Some(vec![
+        let selections = Some(vec![
             format!("{basis}({chrono_col}) AS {BASABLE_CHRONO_XCOL}"),
             format!("COUNT(*) AS {BASABLE_CHRONO_YCOL}"),
         ]);
 
-        let operation = QueryOperation::SelectData(selection_columns);
+        let operation = QueryOperation::SelectData(selections);
 
         // create query filters
         let filter = Filter::BASE(FilterCondition {

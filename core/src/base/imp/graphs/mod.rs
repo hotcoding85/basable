@@ -1,7 +1,8 @@
-use std::fmt::{Debug, Display};
+use std::{collections::HashMap, fmt::{Debug, Display}};
 
 use category::CategoryGraphOpts;
 use chrono::ChronoAnalysisOpts;
+use geo::GeoGraphOpts;
 use mysql::Value as MysqlValue;
 use serde::{ser::SerializeTuple, Serialize};
 use time::Date;
@@ -11,13 +12,14 @@ use crate::base::AppError;
 
 use super::db::DBError;
 
-pub(crate) mod category;
-pub(crate) mod chrono;
-pub(crate) mod trend;
+pub mod category;
+pub mod chrono;
+pub mod trend;
+pub mod geo;
 
-pub(crate) type AnalysisResults = Vec<AnalysisResult>;
+pub type AnalysisResults = Vec<AnalysisResult>;
 
-pub(crate) enum AnalysisValue {
+pub enum AnalysisValue {
     NULL,
     UInt(usize),
     Int(isize),
@@ -79,7 +81,7 @@ impl From<MysqlValue> for AnalysisValue {
 }
 
 #[derive(Serialize)]
-pub(crate) struct AnalysisResult(AnalysisValue, AnalysisValue);
+pub struct AnalysisResult(AnalysisValue, AnalysisValue);
 impl AnalysisResult {
     pub fn new(x: AnalysisValue, y: AnalysisValue) -> Self {
         AnalysisResult(x, y)
@@ -92,10 +94,15 @@ impl Debug for AnalysisResult {
     }
 }
 
-pub(crate) trait VisualizeDB {
+pub trait VisualizeDB {
     fn chrono_graph(&self, opts: ChronoAnalysisOpts) -> Result<AnalysisResults, DBError>;
     fn trend_graph(&self, opts: TrendGraphOpts) -> Result<AnalysisResults, DBError>;
-    fn category_graph(&self, opts: CategoryGraphOpts) -> Result<AnalysisResults, AppError>;
+    fn category_graph(&self, opts: CategoryGraphOpts) -> Result<AnalysisResults, DBError>;
+    fn geo_graph(&self, opts: GeoGraphOpts) -> Result<AnalysisResults, DBError>;
+}
+
+pub trait FromQueryParams {
+    fn from_query_params(params: HashMap<String, String>) -> Result<Self, AppError> where Self: Sized;
 }
 
 #[cfg(test)]
@@ -103,7 +110,7 @@ mod tests {
     use crate::{
         base::{
             imp::graphs::{
-                category::{CategoryGraphOpts, CategoryGraphType},
+                category::{CategoryGraphOpts, CategoryAnalysis},
                 chrono::{ChronoAnalysisBasis, ChronoAnalysisRange},
                 trend::CrossOptions,
             },
@@ -160,9 +167,9 @@ mod tests {
 
         let opts = CategoryGraphOpts {
             table: "vgchartz".to_string(),
-            graph_type: CategoryGraphType::Simple,
-            target_col: "publisher".to_string(),
-            limit: 20,
+            analysis: CategoryAnalysis::Simple,
+            target_column: "publisher".to_string(),
+            limit: Some(20),
         };
 
         let graph = db.category_graph(opts);
